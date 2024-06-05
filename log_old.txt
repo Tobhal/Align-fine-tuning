@@ -1,0 +1,26 @@
+Time: 2023-07-31 15:20:36
+Best AUC achived is: 0
+Best HM achived is: 0
+
+Time: 2023-07-31 15:23:26
+Best AUC achived is: 0
+Best HM achived is: 0
+
+Time: 2023-07-31 15:27:15
+Best AUC achived is: 0
+Best HM achived is: 0
+
+Time: 2023-07-31 15:28:40
+Best AUC achived is: 0
+Best HM achived is: 0
+
+Time: 2023-07-31 15:41:05
+Best AUC achived is: 0.0016247480619831331
+Best HM achived is: 0.02694019036236259
+
+Time: 2023-07-31 21:54:56
+Best AUC achived is: 0.012881759463670206
+Best HM achived is: 0.07833628498067659
+
+
+
