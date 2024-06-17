@@ -160,3 +160,5 @@ cython_debug/
 #.idea/
 
 saved_models/*
+.DS_Store
+logs/*
