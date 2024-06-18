@@ -6,11 +6,11 @@ def dataset_argparse(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
     dataset_parser = parser.add_argument_group('Dataset arguments')
     # dataset_parser.add_argument('--data_config', type=str, default=ospj('configs', 'data', 'default.yaml'), help='Path to the data configuration file')
 
-    dataset_parser.add_argument('--data_dir', default='BengaliWords/BengaliWords_CroppedVersion_Folds', help='local path to data root dir from ' + DATA_FOLDER)
+    dataset_parser.add_argument('--data_dir', default='BengaliWords_CroppedVersion_Folds', help='local path to data root dir from ' + DATA_FOLDER)
     dataset_parser.add_argument('--dataset', default='BengaliWords', help='bengali')
 
     dataset_parser.add_argument('--split_name', default='fold_0_t', help="dataset split")
-    dataset_parser.add_argument('--save_dir', default='models', help='local path to save models')
+    dataset_parser.add_argument('--save_dir', default='saved_models', help='local path to save models')
     dataset_parser.add_argument('--save_name', default='align-fine-tune', help='name of the saved model')
 
     dataset_parser.add_argument('--image_extractor', default = 'resnet18', help = 'Feature extractor model')

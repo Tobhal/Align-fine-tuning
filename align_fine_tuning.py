@@ -208,8 +208,10 @@ def train_epoch(
     running_loss = 0.0
     accumulated_loss = 0.0
 
-    train_bar = tqdm(train_loader, desc=f'TE: {epoch}', position=0, leave=True)
-    for i, batch in enumerate(train_bar):
+    print(f'TE {epoch}', end=' ')
+
+    # train_bar = tqdm(train_loader, desc=f'TE: {epoch}', position=0, leave=True, disable=True)
+    for i, batch in enumerate(train_loader):
         optimizer.zero_grad()
 
         *_, image_names, _, words = batch
@@ -231,7 +233,7 @@ def train_epoch(
         class_labels = torch.tensor(class_indices)
 
         # Prepare the inputs and get the model's output
-        inputs = align_processor(text=descriptions, images=images, padding='max_length', return_tensors="pt")
+        inputs = align_processor(text=descriptions, images=images, padding=True, return_tensors="pt")
 
         # Move the inputs to the device
         inputs = {name: tensor.to(device) for name, tensor in inputs.items()}
@@ -266,10 +268,12 @@ def train_epoch(
                 lr_scheduler.step()
 
             running_loss += accumulated_loss
-            train_bar.set_description(f'TE: {epoch} | Loss: {accumulated_loss:.4f}')
+            # train_bar.set_description(f'TE: {epoch} | Loss: {accumulated_loss:.4f}')
             accumulated_loss = 0.0  # Reset accumulated loss after updating
 
     average_loss = running_loss / len(train_loader)
+
+    print(f'| loss {average_loss}')
 
     return average_loss
 
@@ -286,8 +290,10 @@ def validate_epoch(
     model.eval()  # Set the model to evaluation mode
     running_loss = 0.0
 
-    val_bar = tqdm(val_loader, desc=f'VE: {epoch}', position=0, leave=True)
-    for i, batch in enumerate(val_bar):
+    print(f'VE {epoch}', end=' ')
+
+    # val_bar = tqdm(val_loader, desc=f'VE: {epoch}', position=0, leave=True, disable=True)
+    for i, batch in enumerate(val_loader):
         with torch.no_grad():  # No gradients needed
             *_, image_names, _, words = batch
 
@@ -308,7 +314,7 @@ def validate_epoch(
             class_labels = torch.tensor(class_indices)
 
             # Prepare the inputs and get the model's output
-            inputs = align_processor(text=descriptions, images=images, padding='max_length', return_tensors="pt")
+            inputs = align_processor(text=descriptions, images=images, padding=True, return_tensors="pt")
 
             # Move the inputs to the device
             inputs = {name: tensor.to(device) for name, tensor in inputs.items()}
@@ -330,15 +336,18 @@ def validate_epoch(
                 raise ValueError('Invalid loss function')
 
             running_loss += loss.item()
-            val_bar.set_description(f'VE: {epoch} | Loss: {loss.item():.4f}')
+            # val_bar.set_description(f'VE: {epoch} | Loss: {loss.item():.4f}')
 
     average_loss = running_loss / len(val_loader)
-    
+
+    print(f'| loss {average_loss}')
+
     return average_loss
 
 
-
 def main(_args=None):
+    print(f'{device}')
+
     parser = argparse.ArgumentParser()
 
     parser = aling_fine_tune_argparse(parser)
@@ -359,7 +368,7 @@ def main(_args=None):
 
     train_loader, train_set = get_training_loader(args, phosc_model)
     validation_loader, _ = get_validation_loader(args, phosc_model)
-    test_loader, _ = get_test_loader(args, phosc_model)
+    # test_loader, _ = get_test_loader(args, phosc_model)
 
     image_loader = ImageLoader(ospj(DATA_FOLDER, args.data_dir, args.split_name))
 
@@ -415,18 +424,19 @@ def main(_args=None):
         lr_scheduler = None
 
     early_stopping = EarlyStopping(
-        save_path=ospj('models', args.name, args.split_name),
+        save_path=ospj(args.save_dir, args.name, args.split_name),
         patience=args.stop_patience,
         verbose=args.verbose,
         save_every=args.save_every,
         model_arguments=args,
         model_argument_parser=parser,
         save=args.save,
-        maximize=args.maximize
+        maximize=args.maximize,
+        validate=args.validate
     )
 
     for epoch in range(args.epochs):
-        loss = train_epoch(
+        train_loss = train_epoch(
             epoch,
             train_loader,
             align_model,
@@ -439,8 +449,10 @@ def main(_args=None):
             args.description
         )
 
+        val_loss = 0
+
         if args.validate:
-            loss = validate_epoch(
+            val_loss = validate_epoch(
                 epoch,
                 validation_loader,
                 align_model,
@@ -450,7 +462,7 @@ def main(_args=None):
                 args.description
             )
 
-        if early_stopping(loss, align_model, epoch):
+        if early_stopping(train_loss, val_loss, align_model, epoch):
             return early_stopping.min_loss, early_stopping.best_model_path
 
     return early_stopping.min_loss, early_stopping.best_model_path

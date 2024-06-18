@@ -23,6 +23,7 @@ class EarlyStopping:
             model_argument_parser: ArgumentParser=None, 
             save=True, 
             maximize=False,
+            validate=False
         ):
         """
         args:
@@ -48,6 +49,7 @@ class EarlyStopping:
         self.best_model_path = None
         self.save = save
         self.maximize = maximize
+        self.validate = validate
         
         if self.save:
             # Initialize save_path with a new run-specific folder
@@ -75,7 +77,10 @@ class EarlyStopping:
             # Create csv file to store the training metrics
             self.metrics_save_path = os.path.join(self.save_path, 'metrics.csv')
             with open(self.metrics_save_path, 'w') as metrics_file:
-                metrics_file.write('epoch,loss\n')
+                if self.validate:
+                    metrics_file.write('epoch,train_loss,val_loss\n')
+                else:
+                    metrics_file.write('epoch,train_loss\n')
             
 
     def initialize_save_path(self, base_path: os.PathLike) -> os.PathLike:
@@ -102,7 +107,7 @@ class EarlyStopping:
 
         return run_save_path
 
-    def __call__(self, loss: float, model: nn.Module, epoch: int) -> bool:
+    def __call__(self, train_loss: float, val_loss, model: nn.Module, epoch: int) -> bool:
         """
         Determines if the training should stop based on the validation loss. And saves the model, model arguments and metrics.
 
@@ -115,6 +120,8 @@ class EarlyStopping:
             should_stop (bool): If True, training should stop.
         """
         should_stop = False
+
+        loss = val_loss if self.validate else train_loss
 
         # If loss is less than the previous minimum loss, save the model
         is_better = loss < self.min_loss if not self.maximize else loss > self.min_loss
@@ -150,7 +157,7 @@ class EarlyStopping:
         if self.save:
             # Save loss to csv
             with open(self.metrics_save_path, 'a') as metrics_file:
-                metrics_file.write(f'{epoch},{loss}\n')
+                metrics_file.write(f'{epoch},{train_loss},{val_loss}\n')
 
         return should_stop
 

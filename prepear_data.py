@@ -172,7 +172,7 @@ def rezie_images(
                     new_width = int(img.width * scale_factor)
                     new_height = int(img.height * scale_factor)
 
-                    img = img.resize((new_width, new_height), Image.ANTIALIAS)
+                    img = img.resize((new_width, new_height), Image.LANCZOS)
 
                     # Pad the image
                     padded_img = Image.new("RGB", (max_width, max_height), (255, 255, 255))
@@ -182,10 +182,10 @@ def rezie_images(
 
                     # Resize the image to the specified size, if provided
                     if size:
-                        padded_img = padded_img.resize(size, Image.ANTIALIAS)
+                        padded_img = padded_img.resize(size, Image.LANCZOS)
 
                     if down_scale_factor:
-                        padded_img = padded_img.resize((int(max_width * down_scale_factor), int(max_height * down_scale_factor)), Image.ANTIALIAS)
+                        padded_img = padded_img.resize((int(max_width * down_scale_factor), int(max_height * down_scale_factor)), Image.LANCZOS)
 
                     # Save the image to overwrite the original file
                     padded_img.save(file_path)
@@ -289,38 +289,42 @@ def main(args=None):
     splits = [
         'train', 
         'test', 
-        'val'
     ]
 
-    original_data_path = ospj(args.original_data, f'fold_{args.fold}')   # Path to train and test data
-    output_data_path = ospj(args.output_dir, f'fold_{args.fold}_{args.output_name}')  # Path to save the new data
+    for fold in args.folds:
+        original_data_path = ospj(args.original_data, f'fold_{fold}')   # Path to train and test data
+        output_data_path = ospj(args.output_dir, f'fold_{fold}_{args.output_name}')  # Path to save the new data
 
-    # Copy data from original to output folder
-    shutil.copytree(original_data_path, output_data_path)
+        print(f'{original_data_path} -> {output_data_path}')
 
-    # Split train into train and validation
-    if args.split:
-        split_and_move_folder(
-            ospj(output_data_path, 'train'), 
-            ospj(output_data_path, 'val'), 
-            'Train_Labels_Fold0.txt', 
-            args.fold, 
-            percentage=args.split_ratio
-        )
+        # Copy data from original to output folder
+        shutil.copytree(original_data_path, output_data_path)
 
-    # Generate CSV files
-    for split in splits:
-        gen_data_csv(ospj(output_data_path, split), args.fold)
+        # Split train into train and validation
+        if args.split:
+            splits.append('val')
 
-    # Rezie images
-    rezie_images(ospj(output_data_path), down_scale_factor=args.down_scale_factor)
+            split_and_move_folder(
+                ospj(output_data_path, 'train'), 
+                ospj(output_data_path, 'val'), 
+                f'Train_Labels_Fold{fold}.txt', 
+                fold, 
+                percentage=args.split_ratio
+            )
 
-    # Augment data
-    if args.augmented:
-        augment_data(
-            ospj(output_data_path, 'train'), 
-            total_augmentations=args.augmentations_per_image
-        )
+        # Generate CSV files
+        for split in splits:
+            gen_data_csv(ospj(output_data_path, split), fold)
+
+        # Rezie images
+        rezie_images(ospj(output_data_path), down_scale_factor=args.down_scale_factor)
+
+        # Augment data
+        if args.augmented:
+            augment_data(
+                ospj(output_data_path, 'train'), 
+                total_augmentations=args.augmentations_per_image
+            )
 
 
 if __name__ == '__main__':

@@ -13,5 +13,7 @@ def aling_fine_tune_argparse(parser: argparse.ArgumentParser) -> argparse.Argume
 
     align_fine_tune_parser.add_argument('--description', choices=['word', 'description'], default='word', help='description to use for align fine-tuning')
 
+    # align_fine_tune_parser.add_argument('--no_tqdm_bar', action='store_true', default=False, help='Show tqdm progress bar or not')
+
     return parser
     
