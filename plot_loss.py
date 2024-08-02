@@ -12,6 +12,7 @@ from parser import dataset_argparse, plot_loss_argparse
 def plot_loss(csv_files, labels, columns, plot_name, save_plot=True, show_plot=False, combine=False):
     plt.figure(figsize=(10, 5))
 
+    # Select columns form csv file
     for csv_file, label in zip(csv_files, labels):
         data = pd.read_csv(csv_file)
         epochs = data['epoch']
@@ -20,13 +21,16 @@ def plot_loss(csv_files, labels, columns, plot_name, save_plot=True, show_plot=F
             losses = data[col]
             plt.plot(epochs, losses, label=f'{label} {col}', markersize=3, linewidth=1)
 
+    # Define plot
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.title('Loss across Epochs')
     plt.legend()
     plt.grid(True)
 
+    # Save plot
     if save_plot:
+        # If the plots should be on the same plot or diffrent plots
         if combine:
             # Save combined plot in the parent directory to the current saving folder
             save_path = ospj(os.path.commonpath(csv_files), f'combined_{plot_name}.png')

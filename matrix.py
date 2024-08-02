@@ -398,6 +398,7 @@ def main(args=None, model=None, index=0) -> Tuple[float, float]:
     parser = matrix_argparse(parser)
     parser = phosc_net_argparse(parser)
     parser = dataset_argparse(parser)
+    parser = aling_fine_tune_argparse(parser)
 
     # Parse arguments
     if args is None:
@@ -405,7 +406,7 @@ def main(args=None, model=None, index=0) -> Tuple[float, float]:
     else:
         args = parser.parse_args(args)
 
-    root_dir = ospj(DATA_FOLDER, "BengaliWords", "BengaliWords_CroppedVersion_Folds")
+    root_dir = ospj(DATA_FOLDER, "BengaliWords_CroppedVersion_Folds")
 
     phosc_model = get_phoscnet(args, device)
     test_loader, _ = get_test_loader(args, phosc_model)
@@ -414,10 +415,10 @@ def main(args=None, model=None, index=0) -> Tuple[float, float]:
     results = []
 
     for num in args.nums:
-        model_save_path = ospj('models', 'align-fine-tune', args.split_name, str(num))
+        model_save_path = ospj(args.save_dir, args.name, args.split_name, str(num))
 
         align_fine_tuned_model = AlignModel.from_pretrained("kakaobrain/align-base")
-        align_fine_tuned_model_path = ospj(model_save_path, 'best.pt')
+        align_fine_tuned_model_path = ospj(model_save_path, args.checkpoint_name)
         align_fine_tuned_model.load_state_dict(torch.load(align_fine_tuned_model_path))
 
         if args.evaluate == 'model':
@@ -432,7 +433,7 @@ def main(args=None, model=None, index=0) -> Tuple[float, float]:
 
         res = (num, min_value, max_value, average_value)
 
-        save_matrix(matrix, res, model_save_path, f'matrix_{num}')
+        save_matrix(matrix, res, ospj(model_save_path, num), f'matrix_{num}')
 
         results.append(res)
 

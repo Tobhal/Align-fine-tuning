@@ -16,14 +16,15 @@ class EarlyStopping:
     def __init__(
             self, 
             save_path: os.PathLike, 
+            loss: float,
             patience=7, 
             verbose=True, 
-            save_every=5, 
+            save_every=5,
             model_arguments: dict = {}, 
             model_argument_parser: ArgumentParser=None, 
             save=True, 
             maximize=False,
-            validate=False
+            validate=False,
         ):
         """
         args:
@@ -43,14 +44,14 @@ class EarlyStopping:
         self.verbose = verbose
         self.counter = 0
         self.early_stop = False
-        self.min_loss = np.Inf if not maximize else -np.Inf
+        self.min_loss = loss
         self.save_every = save_every
         self.model_arguments = model_arguments
         self.best_model_path = None
         self.save = save
         self.maximize = maximize
         self.validate = validate
-        
+
         if self.save:
             # Initialize save_path with a new run-specific folder
             self.save_path = self.initialize_save_path(save_path)
@@ -142,6 +143,9 @@ class EarlyStopping:
             if self.counter >= self.patience and self.patience != 0:
                 self.early_stop = True
                 should_stop = True
+
+        # Save latest model as a checkpoint
+        self.save_checkpoint(loss, model, 'latest', checkpoint_type='latest')
 
         # Save the model every n epochs
         if self.save_every is not None:

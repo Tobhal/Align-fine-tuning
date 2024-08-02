@@ -20,6 +20,9 @@ from tqdm import tqdm
 from transformers import AlignProcessor, AlignModel, AutoTokenizer
 import argparse
 import pynvml
+from torch.optim import Optimizer
+from torch.optim.lr_scheduler import _LRScheduler
+from torch.nn import Module
 
 # Local application/library specific imports
 from data import dataset_bengali as dset
@@ -30,20 +33,21 @@ from modules.utils import set_phos_version, set_phoc_version, gen_shape_descript
 from train_clip.utils.clip_utils import gen_word_objs_embeddings
 from utils.dbe import dbe
 from utils.early_stopping import EarlyStopping
-from parser import phosc_net_argparse, dataset_argparse, early_stopper_argparse, aling_fine_tune_argparse, optimizer_argparse, lr_scheduler_argparse
+from parser import phosc_net_argparse, dataset_argparse, early_stopper_argparse, aling_fine_tune_argparse, optimizer_argparse, lr_scheduler_argparse, checkpoint_argparse, slurm_argparse
 from utils.utils import load_args
 from utils.get_dataset import get_training_loader, get_validation_loader, get_test_loader, get_phoscnet
 from utils.loss_functions import compute_triplet_margin_loss, compute_contrastive_loss, simple_loss
 from utils.lamb_optimizer import Lamb
 from modules.utils.utils import get_phosc_description
 from utils.lr_schedulers.exploration import ExplorationOptimizationScheduler
+from utils.checkpoint import save_checkpoint, load_checkpoint
 
 pynvml.nvmlInit()
 
-# align model
-align_processor = AlignProcessor.from_pretrained("kakaobrain/align-base")
-align_model = AlignModel.from_pretrained("kakaobrain/align-base")
-align_tokenizer = AutoTokenizer.from_pretrained("kakaobrain/align-base")
+
+def create_file_with_job_id(save_path: os.PathLike, job_id: int, job_description: str):
+    with open(ospj(save_path, f'slurm_{job_id}.txt'), 'w') as file:
+        file.write(job_description)
 
 
 def get_gpu_memory_usage():
@@ -82,7 +86,7 @@ def verify_model_save_path(path):
 
 
 def create_learning_rate_fn(
-    optimizer,
+    optimizer: Optimizer,
     train_ds_size: int,
     train_batch_size: int,
     num_train_epochs: int,
@@ -108,7 +112,7 @@ def create_learning_rate_fn(
 
 
 def create_cosine_annealing_lr_scheduler(
-        optimizer, 
+        optimizer: Optimizer, 
         T_0, 
         T_mult=1, 
         eta_min=0, 
@@ -194,12 +198,13 @@ def calc_loss(anchor_image_features, positive_text_features, negative_text_featu
 
 def train_epoch(
         epoch: int, 
-        train_loader, 
-        model, 
+        train_loader: DataLoader, 
+        model: Module, 
+        processor,
         image_loader: ImageLoader, 
         loss_func: str, 
-        optimizer, 
-        lr_scheduler=None, 
+        optimizer: Optimizer, 
+        lr_scheduler: _LRScheduler=None, 
         margin=1.0, 
         accumulation_steps=4,
         description='word'
@@ -208,7 +213,7 @@ def train_epoch(
     running_loss = 0.0
     accumulated_loss = 0.0
 
-    print(f'TE {epoch}', end=' ')
+    # print(f'TE {epoch}', end=' ')
 
     # train_bar = tqdm(train_loader, desc=f'TE: {epoch}', position=0, leave=True, disable=True)
     for i, batch in enumerate(train_loader):
@@ -233,7 +238,7 @@ def train_epoch(
         class_labels = torch.tensor(class_indices)
 
         # Prepare the inputs and get the model's output
-        inputs = align_processor(text=descriptions, images=images, padding=True, return_tensors="pt")
+        inputs = processor(text=descriptions, images=images, padding=True, return_tensors="pt")
 
         # Move the inputs to the device
         inputs = {name: tensor.to(device) for name, tensor in inputs.items()}
@@ -273,15 +278,16 @@ def train_epoch(
 
     average_loss = running_loss / len(train_loader)
 
-    print(f'| loss {average_loss}')
+    # print(f'| loss {average_loss}')
 
     return average_loss
 
 
 def validate_epoch(
         epoch: int, 
-        val_loader, 
-        model, 
+        val_loader: DataLoader, 
+        model: Module,
+        processor,
         image_loader: ImageLoader, 
         loss_func: str, 
         margin=1.0, 
@@ -290,7 +296,7 @@ def validate_epoch(
     model.eval()  # Set the model to evaluation mode
     running_loss = 0.0
 
-    print(f'VE {epoch}', end=' ')
+    # print(f'VE {epoch}', end=' ')
 
     # val_bar = tqdm(val_loader, desc=f'VE: {epoch}', position=0, leave=True, disable=True)
     for i, batch in enumerate(val_loader):
@@ -314,7 +320,7 @@ def validate_epoch(
             class_labels = torch.tensor(class_indices)
 
             # Prepare the inputs and get the model's output
-            inputs = align_processor(text=descriptions, images=images, padding=True, return_tensors="pt")
+            inputs = processor(text=descriptions, images=images, padding=True, return_tensors="pt")
 
             # Move the inputs to the device
             inputs = {name: tensor.to(device) for name, tensor in inputs.items()}
@@ -340,7 +346,7 @@ def validate_epoch(
 
     average_loss = running_loss / len(val_loader)
 
-    print(f'| loss {average_loss}')
+    # print(f'| loss {average_loss}')
 
     return average_loss
 
@@ -356,12 +362,21 @@ def main(_args=None):
     parser = early_stopper_argparse(parser)
     parser = optimizer_argparse(parser)
     parser = lr_scheduler_argparse(parser)
+    parser = checkpoint_argparse(parser)
+    parser = slurm_argparse(parser)
 
     # Parse arguments
     if _args is None:
         args = parser.parse_args()
     else:
         args = parser.parse_args(_args)
+
+    # align model
+    align_model = AlignModel.from_pretrained("kakaobrain/align-base")
+    align_processor = AlignProcessor.from_pretrained("kakaobrain/align-base")
+    align_tokenizer = AutoTokenizer.from_pretrained("kakaobrain/align-base")
+
+    align_model.to(device)
 
     # Load phosc model
     phosc_model = get_phoscnet(args, device)
@@ -374,6 +389,8 @@ def main(_args=None):
 
     optimizer = None
     lr_scheduler = None
+
+    save_path = ospj(args.save_dir, args.name, args.split_name)
 
     # Select optimizer
     if args.optimizer == 'lamb' or args.optimizer == 'adam':
@@ -423,8 +440,18 @@ def main(_args=None):
     elif args.lr_scheduler == 'none':
         lr_scheduler = None
 
+    # Load checkpoint if there is any
+    if args.ignore_checkpoint:
+        start_epoch = 1
+        best_loss = float('-inf') if args.maximize else float('inf')
+    else:
+        print('Loading checkpoint')
+        checkpoint_path = save_path if args.checkpoint_path == None else args.checkpoint_path
+        start_epoch, best_loss = load_checkpoint(checkpoint_path, align_model, optimizer, lr_scheduler, maximize=args.maximize)
+
     early_stopping = EarlyStopping(
-        save_path=ospj(args.save_dir, args.name, args.split_name),
+        save_path=save_path,
+        loss=best_loss,
         patience=args.stop_patience,
         verbose=args.verbose,
         save_every=args.save_every,
@@ -435,11 +462,15 @@ def main(_args=None):
         validate=args.validate
     )
 
-    for epoch in range(args.epochs):
+    # Save slurm job to model folder
+    create_file_with_job_id(save_path, args.slurm_job_id, args.slurm_job_desc)
+
+    for epoch in range(start_epoch, args.epochs + 1):
         train_loss = train_epoch(
             epoch,
             train_loader,
             align_model,
+            align_processor,
             image_loader,
             args.loss_func,
             optimizer,
@@ -456,6 +487,7 @@ def main(_args=None):
                 epoch,
                 validation_loader,
                 align_model,
+                align_processor,
                 image_loader,
                 args.loss_func,
                 args.margin,

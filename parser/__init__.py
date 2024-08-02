@@ -9,3 +9,5 @@ from .optimizer_argparse import optimizer_argparse
 from .prepear_data_argparse import prepear_data_argparse
 from .matrix_argparse import matrix_argparse
 from .plot_loss_argparse import plot_loss_argparse
+from .checkpoint_argparse import checkpoint_argparse
+from .slurm_argparse import slurm_argparse
