@@ -1,7 +1,8 @@
-from modules.utils import generate_label_for_description, generate_phoc_vector
+from modules.utils import generate_label_for_description, generate_phoc_vector, generate_phos_vector
 from utils.dbe import dbe
 from typing import Union
 from num2words import num2words
+import numpy as np
 
 def split_string_into_chunks(input_string, chunk_size: int):
     """
@@ -84,3 +85,21 @@ def get_phosc_description(word: str) -> str:
     description += gen_phoc_label_description(word)
 
     return description
+
+def get_phosc_number_description(word: str) -> str:
+    phos = generate_phos_vector(word)
+    phoc = generate_phoc_vector(word)
+
+    phos = np.array(phos)
+    phoc = [np.concatenate(sublist) for sublist in phoc]
+
+    # flattened_phos = [item for sublist in phos for item in sublist]
+    flattened_phos = phos.flatten()
+    flattened_phoc = phoc.flatten()
+
+    phos_str = ' '.join(str(int(x)) for x in flattened_phos)
+    phoc_str = ' '.join(str(x) for x in flattened_phoc)
+
+    dbe(phos_str, phoc_str)
+
+    return ''

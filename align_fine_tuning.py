@@ -38,7 +38,7 @@ from utils.utils import load_args
 from utils.get_dataset import get_training_loader, get_validation_loader, get_test_loader, get_phoscnet
 from utils.loss_functions import compute_triplet_margin_loss, compute_contrastive_loss, simple_loss
 from utils.lamb_optimizer import Lamb
-from modules.utils.utils import get_phosc_description
+from modules.utils.utils import get_phosc_description, get_phosc_number_description
 from utils.lr_schedulers.exploration import ExplorationOptimizationScheduler
 from utils.checkpoint import save_checkpoint, load_checkpoint
 
@@ -203,7 +203,8 @@ def train_epoch(
         processor,
         image_loader: ImageLoader, 
         loss_func: str, 
-        optimizer: Optimizer, 
+        optimizer: Optimizer,
+        save_path: str,
         lr_scheduler: _LRScheduler=None, 
         margin=1.0, 
         accumulation_steps=4,
@@ -228,8 +229,16 @@ def train_epoch(
             descriptions = words
         elif description == 'description':
             descriptions = [get_phosc_description(word) for word in words]
+        elif description == 'phosc_number':
+            description = [get_phosc_number_description(word) for word in words]
         else:
             raise ValueError('Invalid description')
+        
+        # Save 1 description to model dir
+        description_example_file = ospj(save_path, 'description_example.txt')
+        if not os.path.exists(description_example_file):
+            with open(description_example_file, 'w') as description_file:
+                description_file.write(f'{words[0]}\n{descriptions[0]}')
         
         unique_classes = set(words)  # Find the unique classes
         class_to_index = {cls: idx for idx, cls in enumerate(unique_classes)}  # Create a mapping
@@ -289,7 +298,8 @@ def validate_epoch(
         model: Module,
         processor,
         image_loader: ImageLoader, 
-        loss_func: str, 
+        loss_func: str,
+        save_path: str,
         margin=1.0, 
         description='word'
     ):
@@ -467,31 +477,33 @@ def main(_args=None):
 
     for epoch in range(start_epoch, args.epochs + 1):
         train_loss = train_epoch(
-            epoch,
-            train_loader,
-            align_model,
-            align_processor,
-            image_loader,
-            args.loss_func,
-            optimizer,
-            lr_scheduler,
-            args.margin,
-            args.accumulation_steps,
-            args.description
+            epoch               = epoch,
+            train_loader        = train_loader,
+            model               = align_model,
+            processor           = align_processor,
+            image_loader        = image_loader,
+            loss_func           = args.loss_func,
+            optimizer           = optimizer,
+            lr_scheduler        = lr_scheduler,
+            margin              = args.margin,
+            accumulation_steps  = args.accumulation_steps,
+            description         = args.description,
+            save_path           = early_stopping.save_path,
         )
 
         val_loss = 0
 
         if args.validate:
             val_loss = validate_epoch(
-                epoch,
-                validation_loader,
-                align_model,
-                align_processor,
-                image_loader,
-                args.loss_func,
-                args.margin,
-                args.description
+                epoch           = epoch,
+                val_loader      = validation_loader,
+                model           = align_model,
+                processor       = align_processor,
+                image_loader    = image_loader,
+                loss_func       = args.loss_func,
+                margin          = args.margin,
+                description     = args.description,
+                save_path       = early_stopping.save_path,
             )
 
         if early_stopping(train_loss, val_loss, align_model, epoch):

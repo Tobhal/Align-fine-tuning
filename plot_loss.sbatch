@@ -7,8 +7,4 @@
 #SBATCH --mem=4G                        # Memory (default units are megabytes)
 #SBATCH --time=1:00:00                 # Time limit hrs:min:sec
 
-python plot_loss.py --nums 1 2 --save_plot --split_name fold_0_t
-python plot_loss.py --nums 1 2 --save_plot --split_name fold_1_t
-python plot_loss.py --nums 1 2 --save_plot --split_name fold_2_t
-python plot_loss.py --nums 1 2 --save_plot --split_name fold_3_t
-python plot_loss.py --nums 1 2 --save_plot --split_name fold_4_t
+python plot_loss.py --nums 6 --save_plot --split_name fold_0_aug
