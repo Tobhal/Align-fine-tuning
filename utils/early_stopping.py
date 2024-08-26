@@ -140,9 +140,11 @@ class EarlyStopping:
             if self.verbose and self.patience != 0:
                 print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
 
+            """
             if self.counter >= self.patience and self.patience != 0:
                 self.early_stop = True
                 should_stop = True
+            """
 
         # Save latest model as a checkpoint
         self.save_checkpoint(loss, model, 'latest', checkpoint_type='latest')

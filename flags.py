@@ -4,7 +4,7 @@ import torch
 from os.path import join as ospj
 
 # DATA_FOLDER = "../data/czsl/DATA_ROOT/"
-DATA_FOLDER = ospj('..', 'data')
+DATA_FOLDER = ospj('/global', 'D1', 'homes', 'tobiah')
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # device = 'cpu'

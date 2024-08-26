@@ -30,7 +30,7 @@ from data.dataset_bengali import ImageLoader
 from flags import DATA_FOLDER, device
 from modules import models, residualmodels
 from modules.utils import set_phos_version, set_phoc_version, gen_shape_description, gen_shape_description_simple
-from train_clip.utils.clip_utils import gen_word_objs_embeddings
+# from train_clip.utils.clip_utils import gen_word_objs_embpeddings
 from utils.dbe import dbe
 from utils.early_stopping import EarlyStopping
 from parser import phosc_net_argparse, dataset_argparse, early_stopper_argparse, aling_fine_tune_argparse, optimizer_argparse, lr_scheduler_argparse, checkpoint_argparse, slurm_argparse

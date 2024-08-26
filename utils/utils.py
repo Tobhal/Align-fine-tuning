@@ -8,7 +8,7 @@ import sys
 import yaml
 
 from flags import device
-import clip
+# import clip
 
 def chunks(l, n):
     """Yield successive n-sized chunks from l."""
@@ -66,12 +66,3 @@ def load_args(filename, args):
     for key, group in data_loaded.items():
         for key, val in group.items():
             setattr(args, key, val)
-
-
-def clip_text_features_from_description(description, clip_model):
-    text = clip.tokenize(description).to(device)
-
-    with torch.no_grad():
-        text_features = clip_model.encode_text(text)
-        
-    return text_features
