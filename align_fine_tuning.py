@@ -6,7 +6,8 @@ import random
 import sys
 from enum import Enum
 from os.path import join as ospj
-from typing import Callable, Tuple
+from typing import Callable, Tuple, List
+import copy
 
 # Third-party imports
 import numpy as np
@@ -48,6 +49,21 @@ pynvml.nvmlInit()
 def create_file_with_job_id(save_path: os.PathLike, job_id: int, job_description: str):
     with open(ospj(save_path, f'slurm_{job_id}.txt'), 'w') as file:
         file.write(job_description)
+
+
+def list_allocated_gpus():
+    # Checks if CUDA is available at all
+    if torch.cuda.is_available():
+        # Count the number of GPUs available
+        num_gpus = torch.cuda.device_count()
+        print(f"Number of GPUs available: {num_gpus}")
+        
+        # List each GPU's ID and its properties
+        for i in range(num_gpus):
+            gpu_properties = torch.cuda.get_device_properties(i)
+            print(f"GPU {i}: {gpu_properties.name}, Total Memory: {gpu_properties.total_memory / (1024 ** 3)} GB")
+    else:
+        print("No GPUs are available")
 
 
 def get_gpu_memory_usage():
@@ -199,30 +215,35 @@ def calc_loss(anchor_image_features, positive_text_features, negative_text_featu
 def train_epoch(
         epoch: int, 
         train_loader: DataLoader, 
-        model: Module, 
-        processor,
+        base_model: Module, 
+        processors: List,
         image_loader: ImageLoader, 
         loss_func: str, 
         optimizer: Optimizer,
         save_path: str,
-        lr_scheduler: _LRScheduler=None, 
+        lr_scheduler: List[_LRScheduler]=None, 
         margin=1.0, 
         accumulation_steps=4,
         description='word'
     ):
-    model.train()
+    base_model.train()
     running_loss = 0.0
-    accumulated_loss = 0.0
-
-    # print(f'TE {epoch}', end=' ')
+    
+    num_gpus = torch.cuda.device_count()
 
     # train_bar = tqdm(train_loader, desc=f'TE: {epoch}', position=0, leave=True, disable=True)
     for i, batch in enumerate(train_loader):
+        gpu_id = i % num_gpus  # Round-robin distribution of batches
+        device = torch.device(f'cuda:{gpu_id}')
+
+        print(f'Device = cuda:{gpu_id}')
+
+        # Copy model to the current GPU
+        model = copy.deepcopy(base_model).to(device)
+
         optimizer.zero_grad()
 
         *_, image_names, _, words = batch
-
-        # Assuming each image is paired with a matching description
         images = [image_loader(img_name) for img_name in image_names]
 
         if description == 'word':
@@ -240,21 +261,17 @@ def train_epoch(
             with open(description_example_file, 'w') as description_file:
                 description_file.write(f'{words[0]}\n{descriptions[0]}')
         
-        unique_classes = set(words)  # Find the unique classes
-        class_to_index = {cls: idx for idx, cls in enumerate(unique_classes)}  # Create a mapping
-
-        class_indices = [class_to_index[cls] for cls in words]
-        class_labels = torch.tensor(class_indices)
-
         # Prepare the inputs and get the model's output
+        processor = processors[gpu_id]
         inputs = processor(text=descriptions, images=images, padding=True, return_tensors="pt")
-
-        # Move the inputs to the device
         inputs = {name: tensor.to(device) for name, tensor in inputs.items()}
 
-        model.to(device)
-
         outputs = model(**inputs)
+
+        # Find unice classes
+        unique_classes = set(words)
+        class_to_index = {cls: idx for idx, cls in enumerate(unique_classes)}
+        class_labels = torch.tensor([class_to_index[cls] for cls in words]).cuda(device)  # Ensure labels are on the right GPU
 
         # Calculate the loss
         logits_per_image = outputs.logits_per_image
@@ -268,27 +285,28 @@ def train_epoch(
         else:
             raise ValueError('Invalid loss function')
 
-        # Scale the loss by the number of accumulation steps
         loss = loss / accumulation_steps
         loss.backward()
-        accumulated_loss += loss.item()
 
-         # Perform optimization only after a certain number of steps
+        # Move gradients back to the base model before optimizer step
         if (i + 1) % accumulation_steps == 0:
+            # Aggregate gradients from the current GPU model to the base model
+            for base_param, param in zip(base_model.parameters(), model.parameters()):
+                if param.grad is not None:  # Ensure param grad is not None
+                    if base_param.grad is None:
+                        base_param.grad = param.grad.clone().to('cuda:0')  # Copy grad to primary device
+                    else:
+                        base_param.grad += param.grad.clone().to('cuda:0')  # Sum grad to existing grad on primary device
+                # If param.grad is None, do nothing; base_param.grad should remain None or existing value
+
             optimizer.step()
             optimizer.zero_grad()
-
             if lr_scheduler is not None:
                 lr_scheduler.step()
 
-            running_loss += accumulated_loss
-            # train_bar.set_description(f'TE: {epoch} | Loss: {accumulated_loss:.4f}')
-            accumulated_loss = 0.0  # Reset accumulated loss after updating
+            running_loss += loss.item() * accumulation_steps  # Correct for the scaling done by loss normalization
 
     average_loss = running_loss / len(train_loader)
-
-    # print(f'| loss {average_loss}')
-
     return average_loss
 
 
@@ -306,9 +324,6 @@ def validate_epoch(
     model.eval()  # Set the model to evaluation mode
     running_loss = 0.0
 
-    # print(f'VE {epoch}', end=' ')
-
-    # val_bar = tqdm(val_loader, desc=f'VE: {epoch}', position=0, leave=True, disable=True)
     for i, batch in enumerate(val_loader):
         with torch.no_grad():  # No gradients needed
             *_, image_names, _, words = batch
@@ -362,7 +377,7 @@ def validate_epoch(
 
 
 def main(_args=None):
-    print(f'{device}')
+    list_allocated_gpus()
 
     parser = argparse.ArgumentParser()
 
@@ -381,34 +396,42 @@ def main(_args=None):
     else:
         args = parser.parse_args(_args)
 
-    # align model
-    align_model = AlignModel.from_pretrained("kakaobrain/align-base")
-    align_processor = AlignProcessor.from_pretrained("kakaobrain/align-base")
-    align_tokenizer = AutoTokenizer.from_pretrained("kakaobrain/align-base")
+    # Assuming torch.cuda.is_available() checks for GPU availability
+    if torch.cuda.is_available():
+        num_gpus = torch.cuda.device_count()
+    else:
+        raise RuntimeError("This setup requires GPUs but none were found.")
 
-    align_model.to(device)
+    # Initialize models on each GPU
+    align_model = AlignModel.from_pretrained("kakaobrain/align-base").to("cuda:0")
+    align_processors = []
+    # align_tokenizer = AutoTokenizer.from_pretrained("kakaobrain/align-base")
 
-    # Load phosc model
-    phosc_model = get_phoscnet(args, device)
+    for i in range(num_gpus):
+        device = torch.device(f'cuda:{i}')
 
-    train_loader, train_set = get_training_loader(args, phosc_model)
-    validation_loader, _ = get_validation_loader(args, phosc_model)
+        align_processors.append(
+            AlignProcessor.from_pretrained("kakaobrain/align-base")
+        )
+
+    train_loader, train_set = get_training_loader(args)
+    validation_loader, _ = get_validation_loader(args)
     # test_loader, _ = get_test_loader(args, phosc_model)
+
+    phosc_model = get_phoscnet(args, device)
 
     image_loader = ImageLoader(ospj(DATA_FOLDER, args.data_dir, args.split_name))
 
     optimizer = None
     lr_scheduler = None
 
-    save_path = ospj(args.save_dir, args.name, args.split_name)
-
-    # Select optimizer
-    if args.optimizer == 'lamb' or args.optimizer == 'adam':
+    # Create optimizer for each model
+    if args.optimizer in ['lamb', 'adam']:
         optimizer = Lamb(
             align_model.parameters(),
             lr=args.lr,
             weight_decay=args.weight_decay,
-            adam=True if args.optimizer == 'adam' else False,
+            adam=(args.optimizer == 'adam'),
             maximize=args.maximize,
         )
     elif args.optimizer == 'none':
@@ -450,6 +473,10 @@ def main(_args=None):
     elif args.lr_scheduler == 'none':
         lr_scheduler = None
 
+    save_path = ospj(args.save_dir, args.name, args.split_name)
+
+    best_loss = None
+
     # Load checkpoint if there is any
     if args.ignore_checkpoint:
         start_epoch = 1
@@ -479,8 +506,8 @@ def main(_args=None):
         train_loss = train_epoch(
             epoch               = epoch,
             train_loader        = train_loader,
-            model               = align_model,
-            processor           = align_processor,
+            base_model          = align_model,
+            processors          = align_processors,
             image_loader        = image_loader,
             loss_func           = args.loss_func,
             optimizer           = optimizer,
@@ -498,7 +525,7 @@ def main(_args=None):
                 epoch           = epoch,
                 val_loader      = validation_loader,
                 model           = align_model,
-                processor       = align_processor,
+                processor       = align_processors[0],
                 image_loader    = image_loader,
                 loss_func       = args.loss_func,
                 margin          = args.margin,

@@ -5,6 +5,8 @@ import os
 import toml
 import json
 
+import torch
+
 from argparse import ArgumentParser
 
 from utils.dbe import dbe
@@ -68,9 +70,23 @@ class EarlyStopping:
                 if group.title not in ['positional arguments', 'optional arguments']:
                     grouped_args[group.title] = group_dict
 
+            # Manually create the 'gpus' section string for TOML file
+            gpu_section = "\n[gpus]\n"
+            for i in range(torch.cuda.device_count()):
+                name = torch.cuda.get_device_properties(i).name
+                memory = torch.cuda.get_device_properties(i).total_memory / (1024 ** 3)
+                gpu_section += f'\"Cuda:{i}\" = {{name = "{name}", memory = {memory}}}\n'
+
+            # Serialize the rest of grouped_args using the toml package
+            grouped_args_str = toml.dumps(grouped_args)
+
+            # Combine the manually created GPU section with the rest of the TOML content
+            full_toml_content = grouped_args_str + gpu_section
+
+            # Save to file
             try:
                 with open(args_save_path, 'w') as toml_file:
-                    toml.dump(grouped_args, toml_file)
+                    toml_file.write(full_toml_content)
                 print("Config saved successfully.")
             except Exception as e:
                 print(f"Failed to save config: {e}")
