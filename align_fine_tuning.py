@@ -32,16 +32,19 @@ from flags import DATA_FOLDER, device
 from modules import models, residualmodels
 from modules.utils import set_phos_version, set_phoc_version, gen_shape_description, gen_shape_description_simple
 # from train_clip.utils.clip_utils import gen_word_objs_embpeddings
+from parser import phosc_net_argparse, dataset_argparse, early_stopper_argparse, aling_fine_tune_argparse, optimizer_argparse, lr_scheduler_argparse, checkpoint_argparse, slurm_argparse
+from modules.utils.utils import get_phosc_description, get_phosc_number_description
+
+# Utils
 from utils.dbe import dbe
 from utils.early_stopping import EarlyStopping
-from parser import phosc_net_argparse, dataset_argparse, early_stopper_argparse, aling_fine_tune_argparse, optimizer_argparse, lr_scheduler_argparse, checkpoint_argparse, slurm_argparse
 from utils.utils import load_args
 from utils.get_dataset import get_training_loader, get_validation_loader, get_test_loader, get_phoscnet
 from utils.loss_functions import compute_triplet_margin_loss, compute_contrastive_loss, simple_loss
 from utils.lamb_optimizer import Lamb
-from modules.utils.utils import get_phosc_description, get_phosc_number_description
 from utils.lr_schedulers.exploration import ExplorationOptimizationScheduler
 from utils.checkpoint import save_checkpoint, load_checkpoint
+from utils.image_cache import ImageCache
 
 pynvml.nvmlInit()
 
@@ -217,7 +220,7 @@ def train_epoch(
         train_loader: DataLoader, 
         base_model: Module, 
         processors: List,
-        image_loader: ImageLoader, 
+        image_cache: ImageCache,
         loss_func: str, 
         optimizer: Optimizer,
         save_path: str,
@@ -236,15 +239,14 @@ def train_epoch(
         gpu_id = i % num_gpus  # Round-robin distribution of batches
         device = torch.device(f'cuda:{gpu_id}')
 
-        print(f'Device = cuda:{gpu_id}')
-
         # Copy model to the current GPU
         model = copy.deepcopy(base_model).to(device)
 
         optimizer.zero_grad()
 
         *_, image_names, _, words = batch
-        images = [image_loader(img_name) for img_name in image_names]
+        images = [image_cache.load_image(img_name) for img_name in image_names]
+
 
         if description == 'word':
             descriptions = words
@@ -315,7 +317,7 @@ def validate_epoch(
         val_loader: DataLoader, 
         model: Module,
         processor,
-        image_loader: ImageLoader, 
+        image_cache: ImageCache, 
         loss_func: str,
         save_path: str,
         margin=1.0, 
@@ -328,8 +330,7 @@ def validate_epoch(
         with torch.no_grad():  # No gradients needed
             *_, image_names, _, words = batch
 
-            # Assuming each image is paired with a matching description
-            images = [image_loader(img_name) for img_name in image_names]
+            images = [image_cache.load_image(img_name) for img_name in image_names]
 
             if description == 'word':
                 descriptions = words
@@ -418,9 +419,16 @@ def main(_args=None):
     validation_loader, _ = get_validation_loader(args)
     # test_loader, _ = get_test_loader(args, phosc_model)
 
+    # Load images to cache
+    train_image_cache = ImageCache(ospj(DATA_FOLDER, args.data_dir, args.split_name))
+    train_image_cache.preload_images(train_loader, ImageCache.extract_image_paths)
+
+    validation_image_cache = ImageCache(ospj(DATA_FOLDER, args.data_dir, args.split_name))
+    validation_image_cache.preload_images(validation_loader, ImageCache.extract_image_paths)
+
     phosc_model = get_phoscnet(args, device)
 
-    image_loader = ImageLoader(ospj(DATA_FOLDER, args.data_dir, args.split_name))
+    # image_loader = ImageLoader(ospj(DATA_FOLDER, args.data_dir, args.split_name))
 
     optimizer = None
     lr_scheduler = None
@@ -508,7 +516,7 @@ def main(_args=None):
             train_loader        = train_loader,
             base_model          = align_model,
             processors          = align_processors,
-            image_loader        = image_loader,
+            image_cache         = train_image_cache,
             loss_func           = args.loss_func,
             optimizer           = optimizer,
             lr_scheduler        = lr_scheduler,
@@ -526,7 +534,7 @@ def main(_args=None):
                 val_loader      = validation_loader,
                 model           = align_model,
                 processor       = align_processors[0],
-                image_loader    = image_loader,
+                image_cache    = validation_image_cache,
                 loss_func       = args.loss_func,
                 margin          = args.margin,
                 description     = args.description,

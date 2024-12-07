@@ -3,13 +3,14 @@
 #SBATCH --job-name="train augmented datasett"
 
 ##SBATCH --partition=a100q
-##SBATCH --partition=hgx2q
-#SBATCH --partition=mi210q
+#SBATCH --partition=hgx2q
+##SBATCH --partition=mi210q
 
 #SBATCH --time=14-0:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
+#SBATCH --gres=gpu:8
 #SBATCH --output=out/std/train/%j-%x-stdout.txt
 #SBATCH --error=out/err/train/%j-%x-stderr.txt
 
